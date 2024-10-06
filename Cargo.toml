@@ -1,0 +1,11 @@
+[package]
+name = "win_pe_analysis"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+chrono = "0.4.38"
+exe = "0.5.6"
+num = "0.4.3"
+num-derive = "0.4.2"
+num-traits = "0.2.19"
