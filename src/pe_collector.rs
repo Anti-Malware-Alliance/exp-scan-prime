@@ -5,6 +5,8 @@ use exe::DLLCharacteristics;
 use num_derive::FromPrimitive;
 use std::error::Error;
 
+use crate::pe_imports::get_import_names;
+
 // TODO: look into changing these into enums
 const FILE_CHARS: [&str; 16] = [
     "RELOCS_STRIPPED",
@@ -130,7 +132,7 @@ pub fn parse_64(image: &VecPE) -> Result<String, Box<dyn Error>> {
 
 pub fn get_csv_headers_64() -> String {
     let head = format!(
-        "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+        "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
         "file_name",
         "architecture",
         "machine_type",
@@ -163,7 +165,8 @@ pub fn get_csv_headers_64() -> String {
         "size_of_heap_reserve",
         "size_of_heap_commit",
         "loader_flags",
-        "number_of_rva_and_sizes"
+        "number_of_rva_and_sizes",
+        "import_directory"
     );
 
     return head;
@@ -241,7 +244,7 @@ fn collect_optional_head_str_64(image: &VecPE) -> Result<String, Box<dyn Error>>
     };
 
     let opt_head = format!(
-        "{},{},{},{},{},{:#X},{:#X},{:#X},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+        "{},{},{},{},{},{:#X},{:#X},{:#X},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
         magic_str,
         linker_ver_str,
         header.size_of_code,
@@ -265,7 +268,8 @@ fn collect_optional_head_str_64(image: &VecPE) -> Result<String, Box<dyn Error>>
         header.size_of_heap_reserve,
         header.size_of_heap_commit,
         header.loader_flags,
-        header.number_of_rva_and_sizes
+        header.number_of_rva_and_sizes,
+        get_import_names(image)?,
     );
 
     return Ok(opt_head);
@@ -280,7 +284,7 @@ pub fn parse_32(image: &VecPE) -> Result<String, Box<dyn Error>> {
 }
 pub fn get_csv_headers_32() -> String {
     let head = format!(
-        "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+        "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
         "file_name",
         "architecture",
         "machine_type",
@@ -314,7 +318,8 @@ pub fn get_csv_headers_32() -> String {
         "size_of_heap_reserve",
         "size_of_heap_commit",
         "loader_flags",
-        "number_of_rva_and_sizes"
+        "number_of_rva_and_sizes",
+        "import_directory",
     );
 
     return head;
@@ -390,7 +395,7 @@ fn collect_optional_head_str_32(image: &VecPE) -> Result<String, Box<dyn Error>>
     };
 
     let opt_head = format!(
-        "{},{},{},{},{},{:#X},{:#X},{:#X},{:#X},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+        "{},{},{},{},{},{:#X},{:#X},{:#X},{:#X},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
         magic_str,
         linker_ver_str,
         header.size_of_code,
@@ -415,7 +420,8 @@ fn collect_optional_head_str_32(image: &VecPE) -> Result<String, Box<dyn Error>>
         header.size_of_heap_reserve,
         header.size_of_heap_commit,
         header.loader_flags,
-        header.number_of_rva_and_sizes
+        header.number_of_rva_and_sizes,
+        get_import_names(image)?,
     );
 
     return Ok(opt_head);
