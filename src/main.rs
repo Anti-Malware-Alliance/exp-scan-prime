@@ -8,7 +8,6 @@ use std::{
 };
 
 use exe::pe::{VecPE, PE};
-use exe::types::CCharString;
 mod pe_collector;
 
 #[derive(Debug)]
