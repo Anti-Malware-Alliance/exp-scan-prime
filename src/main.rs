@@ -9,6 +9,7 @@ use std::{
 
 use exe::pe::{VecPE, PE};
 mod pe_collector;
+mod pe_imports;
 
 #[derive(Debug)]
 enum ArgError {
