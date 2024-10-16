@@ -1,13 +1,15 @@
+use chrono::Local;
+use exe::pe::{VecPE, PE};
+use rayon::prelude::*;
 use std::{
     env,
     error::Error,
-    fs::{self, File},
+    fs::{self, File, OpenOptions},
     io::Write,
     process::Command,
     str,
+    sync::Mutex,
 };
-
-use exe::pe::{VecPE, PE};
 mod pe_collector;
 mod pe_imports;
 
@@ -17,72 +19,153 @@ enum ArgError {
     InvalidFileName,
 }
 
-fn get_valid_arg() -> Result<String, ArgError> {
-    let args: Vec<String> = env::args().collect();
-
-    if args.len() != 2 {
+fn is_valid_arg(args: &[String]) -> Result<(), ArgError> {
+    if args.len() == 1 {
         return Err(ArgError::InvalidArgNum);
     }
+    let mut arg_iter = args.iter();
 
-    if fs::metadata(args[1].as_str()).is_err() {
-        return Err(ArgError::InvalidFileName);
+    arg_iter.next(); //skipping the cwd
+
+    for arg in arg_iter {
+        if fs::metadata(arg).is_err() {
+            eprintln!("INVALID FILE/DIRECTORY NAME: {}", arg);
+            return Err(ArgError::InvalidFileName);
+        }
     }
 
-    Ok(args[1].clone())
+    Ok(())
 }
 
-fn build_csv_64(file_name: &str, image: &VecPE) -> Result<String, Box<dyn Error>> {
-    let row = format!("{},{}", file_name, pe_collector::parse_64(image)?);
+fn unpack_dir(dir_name: &str) -> Result<Vec<String>, Box<dyn Error>> {
+    let mut file_names: Vec<String> = vec![];
 
-    let csv_header = pe_collector::get_csv_headers_64();
+    let files = fs::read_dir(dir_name)?;
 
-    let csv_path = "result/sample64.csv";
-    {
-        // controllin the scope of the file to make sure it closed before the script is called
-        let mut f = File::create(csv_path).expect("Unable to create file");
-        f.write_all(format!("{}\n{}", csv_header, row).as_bytes())
-            .expect("Unable to write data");
+    for file in files {
+        let file = file?;
+        let path = file.path();
+        let file_path = path.as_os_str().to_str().unwrap();
+        let file_meta = fs::metadata(file_path)?;
+
+        if file_meta.is_dir() {
+            file_names.extend(unpack_dir(file_path)?);
+        } else {
+            file_names.push(file_path.to_owned());
+        }
     }
-
-    Ok(csv_path.to_owned())
+    Ok(file_names)
 }
 
-fn build_csv_32(file_name: &str, image: &VecPE) -> Result<String, Box<dyn Error>> {
-    let row = format!("{},{}", file_name, pe_collector::parse_32(image)?);
-
-    let csv_header = pe_collector::get_csv_headers_32();
-
-    let csv_path = "result/sample32.csv";
-    {
-        // controllin the scope of the file to make sure it closed before the script is called
-        let mut f = File::create(csv_path).expect("Unable to create file");
-        f.write_all(format!("{}\n{}", csv_header, row).as_bytes())
-            .expect("Unable to write data");
-    }
-
-    Ok(csv_path.to_owned())
-}
-
-fn main() -> Result<(), Box<dyn Error>> {
-    let file_name = get_valid_arg().unwrap();
-
-    let image = VecPE::from_disk_file(file_name.clone())?;
-
-    let is_64_bit: bool = image.get_arch()? == exe::Arch::X64;
-
-    let file_path = if is_64_bit {
-        build_csv_64(file_name.as_str(), &image)?
-    } else {
-        build_csv_32(file_name.as_str(), &image)?
-    };
-
-    let out = Command::new("python3")
-        .args(["scripts/csv_to_parquet.py", file_path.as_str()])
+fn convert_csv(file_name: &str) -> Result<(), Box<dyn Error>> {
+    let _ = Command::new("python3")
+        .args(["scripts/csv_to_parquet.py", file_name])
         .output()
         .expect("Failed to convert csv to parquet. Make sure `python3` is on your PATH");
 
-    println!("{}", str::from_utf8(out.stdout.as_slice())?);
-    println!("{}", str::from_utf8(out.stderr.as_slice())?);
+    // println!("{}", str::from_utf8(out.stdout.as_slice())?);
+    // println!("{}", str::from_utf8(out.stderr.as_slice())?);
+
+    Ok(())
+}
+
+fn collect_file_paths(file_names: &[String]) -> Result<Vec<String>, Box<dyn Error>> {
+    let mut files = vec![];
+
+    for name in file_names {
+        if fs::metadata(name.as_str())?.is_file() {
+            files.push(name.clone());
+        } else if fs::metadata(name.as_str())?.is_dir() {
+            files.extend(unpack_dir(name)?);
+        }
+    }
+    Ok(files)
+}
+
+fn build_csv_rows(file_names: &[String]) -> Result<(String, String), Box<dyn Error>> {
+    let csv_vec_64 = Mutex::new(vec![]);
+    let csv_vec_32 = Mutex::new(vec![]);
+
+    file_names.par_iter().for_each(|file| {
+        let poss_image = VecPE::from_disk_file(file);
+
+        match poss_image {
+            Ok(image) => {
+                let is_x64 = image.get_arch().unwrap() == exe::Arch::X64;
+
+                if is_x64 {
+                    let mut v = csv_vec_64.lock().unwrap();
+                    v.push(format!(
+                        "{},{}",
+                        file,
+                        pe_collector::parse_64(&image).unwrap()
+                    ));
+                } else {
+                    let mut v = csv_vec_32.lock().unwrap();
+                    v.push(format!(
+                        "{},{}",
+                        file,
+                        pe_collector::parse_32(&image).unwrap()
+                    ));
+                }
+            }
+            Err(_) => eprintln!("Error parsing {}, skipping...", file),
+        }
+    });
+    let x64_csv = csv_vec_64.lock().unwrap().join("\n");
+    let x32_csv = csv_vec_32.lock().unwrap().join("\n");
+    Ok((x64_csv, x32_csv))
+}
+
+fn append_or_create_csv(
+    file_name: &str,
+    data: &str,
+    header: Option<&str>,
+) -> Result<(), Box<dyn Error>> {
+    if fs::metadata(file_name).is_err() {
+        // if file does not exist
+        let mut f =
+            File::create(file_name).expect(format!("Unable to create file {}", file_name).as_str());
+        f.write_all(format!("{}\n{}", header.unwrap(), data).as_bytes())
+            .expect("Unable to write data");
+    } else {
+        let mut f = OpenOptions::new().append(true).open(file_name).unwrap();
+        f.write_all(data.as_bytes()).expect("Unable to append data");
+    }
+
+    Ok(())
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
+    let date_time = Local::now();
+    let args: Vec<String> = env::args().collect();
+    match is_valid_arg(&args) {
+        Ok(_) => (),
+        Err(s) => {
+            println!("ERROR: {:?}", s);
+            return Ok(());
+        }
+    }
+
+    let csv_file_name = format!("{}", date_time.format("%Y_%m_%d-%H:%M:%S"));
+    let csv_64_bit = format!("result/{}_x64.csv", csv_file_name);
+    let csv_32_bit = format!("result/{}_x32.csv", csv_file_name);
+
+    let files = collect_file_paths(&args[1..])?;
+    let (csv64, csv32) = build_csv_rows(&files)?;
+    append_or_create_csv(
+        csv_64_bit.as_str(),
+        csv64.as_str(),
+        Some(pe_collector::get_csv_headers_64().as_str()),
+    )?;
+    append_or_create_csv(
+        csv_32_bit.as_str(),
+        csv32.as_str(),
+        Some(pe_collector::get_csv_headers_32().as_str()),
+    )?;
+
+    convert_csv(csv_64_bit.as_str())?;
+    convert_csv(csv_32_bit.as_str())?;
 
     Ok(())
 }
