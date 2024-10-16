@@ -82,7 +82,7 @@ fn collect_file_paths(file_names: &[String]) -> Result<Vec<String>, Box<dyn Erro
     Ok(files)
 }
 
-fn build_csv_rows(file_names: &[String]) -> Result<(String, String), Box<dyn Error>> {
+fn build_csv_rows(file_names: &[String]) -> Result<(Vec<String>, Vec<String>), Box<dyn Error>> {
     let csv_vec_64 = Mutex::new(vec![]);
     let csv_vec_32 = Mutex::new(vec![]);
 
@@ -112,32 +112,47 @@ fn build_csv_rows(file_names: &[String]) -> Result<(String, String), Box<dyn Err
             Err(_) => eprintln!("Error parsing {}, skipping...", file),
         }
     });
-    let x64_csv = csv_vec_64.lock().unwrap().join("\n");
-    let x32_csv = csv_vec_32.lock().unwrap().join("\n");
+    let x64_csv = csv_vec_64.lock().unwrap().clone();
+    let x32_csv = csv_vec_32.lock().unwrap().clone();
     Ok((x64_csv, x32_csv))
 }
 
 fn append_or_create_csv(
     file_name: &str,
-    data: &str,
+    data: &Vec<String>,
     header: Option<&str>,
 ) -> Result<(), Box<dyn Error>> {
     if fs::metadata(file_name).is_err() {
         // if file does not exist
         let mut f =
             File::create(file_name).expect(format!("Unable to create file {}", file_name).as_str());
-        f.write_all(format!("{}\n{}", header.unwrap(), data).as_bytes())
-            .expect("Unable to write data");
+        for dat in data {
+            f.write_all(dat.as_bytes()).expect("Unable to write Data");
+            f.write_all("\n".as_bytes())
+                .expect("Unable to write new line");
+        }
     } else {
-        let mut f = OpenOptions::new().append(true).open(file_name).unwrap();
-        f.write_all(data.as_bytes()).expect("Unable to append data");
+        let mut f = OpenOptions::new()
+            .append(true)
+            .open(file_name)
+            .expect("Unable to write to file");
+        let mut perms = fs::metadata(file_name)?.permissions();
+        perms.set_readonly(false);
+        fs::set_permissions(file_name, perms)?;
+        for dat in data {
+            f.write_all(dat.as_bytes()).expect("Unable to append Data");
+            f.write_all("\n".as_bytes())
+                .expect("unable to append new line");
+        }
+
+        println!("\n\nAppended {:?}\n\n", data)
     }
 
     Ok(())
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let date_time = Local::now();
+    let _date_time = Local::now();
     let args: Vec<String> = env::args().collect();
     match is_valid_arg(&args) {
         Ok(_) => (),
@@ -147,20 +162,24 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    let csv_file_name = format!("{}", date_time.format("%Y_%m_%d-%H:%M:%S"));
-    let csv_64_bit = format!("result/{}_x64.csv", csv_file_name);
-    let csv_32_bit = format!("result/{}_x32.csv", csv_file_name);
+    // let csv_file_name = format!("{}", date_time.format("%Y_%m_%d-%H:%M:%S"));
+    // let csv_64_bit = format!("result/{}_x64.csv", csv_file_name);
+    // let csv_32_bit = format!("result/{}_x32.csv", csv_file_name);
+
+    //to_owend isn't necessary, just to keep it in line iwth the timestamp file names
+    let csv_64_bit = "result/sample64.csv".to_owned();
+    let csv_32_bit = "result/sample32.csv".to_owned();
 
     let files = collect_file_paths(&args[1..])?;
     let (csv64, csv32) = build_csv_rows(&files)?;
     append_or_create_csv(
         csv_64_bit.as_str(),
-        csv64.as_str(),
+        &csv64,
         Some(pe_collector::get_csv_headers_64().as_str()),
     )?;
     append_or_create_csv(
         csv_32_bit.as_str(),
-        csv32.as_str(),
+        &csv32,
         Some(pe_collector::get_csv_headers_32().as_str()),
     )?;
 
