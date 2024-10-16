@@ -126,6 +126,10 @@ fn append_or_create_csv(
         // if file does not exist
         let mut f =
             File::create(file_name).expect(format!("Unable to create file {}", file_name).as_str());
+        f.write_all(header.unwrap().as_bytes())
+            .expect("Unable to write header");
+        f.write_all("\n".as_bytes())
+            .expect("Unable to wirte newline after header");
         for dat in data {
             f.write_all(dat.as_bytes()).expect("Unable to write Data");
             f.write_all("\n".as_bytes())
@@ -144,8 +148,6 @@ fn append_or_create_csv(
             f.write_all("\n".as_bytes())
                 .expect("unable to append new line");
         }
-
-        println!("\n\nAppended {:?}\n\n", data)
     }
 
     Ok(())
