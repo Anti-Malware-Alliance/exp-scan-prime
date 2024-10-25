@@ -95,18 +95,16 @@ fn build_csv_rows(file_names: &[String]) -> Result<(Vec<String>, Vec<String>), B
 
                 if is_x64 {
                     let mut v = csv_vec_64.lock().unwrap();
-                    v.push(format!(
-                        "{},{}",
-                        file,
-                        pe_collector::parse_64(&image).unwrap()
-                    ));
+                    match pe_collector::parse_64(&image) {
+                        Ok(parsed) => v.push(format!("{},{}", file, parsed)),
+                        Err(e) => eprintln!("Error parsing 64-bit image for {}, skipping... Error: {:?}", file, e),
+                    }
                 } else {
                     let mut v = csv_vec_32.lock().unwrap();
-                    v.push(format!(
-                        "{},{}",
-                        file,
-                        pe_collector::parse_32(&image).unwrap()
-                    ));
+                    match pe_collector::parse_32(&image) {
+                        Ok(parsed) => v.push(format!("{},{}", file, parsed)),
+                        Err(e) => eprintln!("Error parsing 32-bit image for {}, skipping... Error: {:?}", file, e),
+                    }
                 }
             }
             Err(_) => eprintln!("Error parsing {}, skipping...", file),
