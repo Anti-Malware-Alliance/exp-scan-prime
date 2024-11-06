@@ -1,12 +1,11 @@
 [package]
-name = "win_pe_analysis"
+name = "exp-scan-prime"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+argh = "0.1.12"
 chrono = "0.4.38"
-exe = "0.5.6"
-num = "0.4.3"
-num-derive = "0.4.2"
-num-traits = "0.2.19"
+clap = "4.5.20"
+lief = "0.15.1"
 rayon = "1.10.0"
